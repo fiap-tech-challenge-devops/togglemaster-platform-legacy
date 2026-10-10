@@ -1,6 +1,33 @@
+# Ambiente local de testes do ToggleMaster.
+#
+# Por padrão as imagens são construídas a partir do Dockerfile de cada serviço
+# irmão — é o modo de desenvolvimento, com ciclo de segundos.
+#
+# Para validar o artefato real publicado pela esteira, use o override:
+#   bash scripts/resolve-image-tags.sh
+#   docker compose -f docker-compose.yml -f docker-compose.ecr.yml pull
+#   docker compose -f docker-compose.yml -f docker-compose.ecr.yml up -d --no-build
+
 services:
+  # ─── Observabilidade ──────────────────────────────────────────────────────────
+  # Destino de toda a telemetria. Os serviços instrumentados falam OTLP com ele,
+  # e ele imprime o que recebe (exporter debug) — o equivalente local do que no
+  # cluster vai para Datadog, Prometheus e Loki.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.162.0
+    container_name: togglemaster-otel-collector
+    command: ["--config=/etc/otel/collector-config.yaml"]
+    volumes:
+      - ./otel/collector-config.yaml:/etc/otel/collector-config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    networks:
+      - togglemaster-network
+
   # ─── Microsserviços ───────────────────────────────────────────────────────────
   auth-service:
+    image: togglemaster/auth-service:local
     build:
       context: ../auth-service
     container_name: togglemaster-auth-service
@@ -10,9 +37,16 @@ services:
       DATABASE_URL: postgres://auth_user:auth_pass@auth-postgres:5432/auth_db?sslmode=disable
       PORT: "8001"
       MASTER_KEY: admin-secreto-123
+      # ── OpenTelemetry ──
+      OTEL_SERVICE_NAME: auth-service
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=togglemaster,deployment.environment.name=local
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
     depends_on:
       auth-postgres:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8001/health || exit 1"]
       interval: 30s
@@ -23,6 +57,7 @@ services:
       - togglemaster-network
 
   flag-service:
+    image: togglemaster/flag-service:local
     build:
       context: ../flag-service
     container_name: togglemaster-flag-service
@@ -32,11 +67,25 @@ services:
       DATABASE_URL: postgres://flags_user:flags_pass@flags-postgres:5432/flags_db
       AUTH_SERVICE_URL: http://auth-service:8001
       PORT: "8002"
+      # ── OpenTelemetry ──
+      # Identidade do serviço: vira o Resource de toda a telemetria emitida.
+      OTEL_SERVICE_NAME: flag-service
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=togglemaster,deployment.environment.name=local
+      # Destino: o Collector, e nada além dele.
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      # Log vira registro OTLP, com o contexto de trace preso ao registro.
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_PYTHON_LOG_CORRELATION: "true"
+      # O healthcheck bate a cada 30s e encheria o terminal de spans inúteis.
+      OTEL_PYTHON_FLASK_EXCLUDED_URLS: health
     depends_on:
       flags-postgres:
         condition: service_healthy
       auth-service:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8002/health || exit 1"]
       interval: 30s
@@ -47,6 +96,7 @@ services:
       - togglemaster-network
 
   targeting-service:
+    image: togglemaster/targeting-service:local
     build:
       context: ../targeting-service
     container_name: togglemaster-targeting-service
@@ -56,11 +106,21 @@ services:
       DATABASE_URL: postgres://targeting_user:targeting_pass@targeting-postgres:5432/targeting_db
       AUTH_SERVICE_URL: http://auth-service:8001
       PORT: "8003"
+      # ── OpenTelemetry ──
+      OTEL_SERVICE_NAME: targeting-service
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=togglemaster,deployment.environment.name=local
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_PYTHON_LOG_CORRELATION: "true"
+      OTEL_PYTHON_FLASK_EXCLUDED_URLS: health
     depends_on:
       targeting-postgres:
         condition: service_healthy
       auth-service:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8003/health || exit 1"]
       interval: 30s
@@ -71,6 +131,7 @@ services:
       - togglemaster-network
 
   evaluation-service:
+    image: togglemaster/evaluation-service:local
     build:
       context: ../evaluation-service
     container_name: togglemaster-evaluation-service
@@ -84,6 +145,11 @@ services:
       FLAG_SERVICE_URL: http://flag-service:8002
       TARGETING_SERVICE_URL: http://targeting-service:8003
       SERVICE_API_KEY: ${EVALUATION_SERVICE_API_KEY:-}
+      # ── OpenTelemetry ──
+      OTEL_SERVICE_NAME: evaluation-service
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=togglemaster,deployment.environment.name=local
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
     depends_on:
       flag-service:
         condition: service_healthy
@@ -101,6 +167,7 @@ services:
       - togglemaster-network
 
   analytics-service:
+    image: togglemaster/analytics-service:local
     build:
       context: ../analytics-service
     container_name: togglemaster-analytics-service
@@ -110,6 +177,14 @@ services:
       - "8005:8005"
     environment:
       PORT: "8005"
+      # ── OpenTelemetry ──
+      OTEL_SERVICE_NAME: analytics-service
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=togglemaster,deployment.environment.name=local
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_PYTHON_LOG_CORRELATION: "true"
+      OTEL_PYTHON_FLASK_EXCLUDED_URLS: health
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8005/health || exit 1"]
       interval: 30s
@@ -120,6 +195,7 @@ services:
       - togglemaster-network
 
   # ─── Bancos de dados ──────────────────────────────────────────────────────────
+  # O schema vem do repositório de cada serviço, clonado lado a lado com este.
   auth-postgres:
     image: postgres:16-alpine
     container_name: togglemaster-auth-postgres

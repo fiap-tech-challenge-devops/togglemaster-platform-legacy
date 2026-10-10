@@ -1,0 +1,25 @@
+# Override: usa as imagens publicadas no ECR em vez do build local.
+#
+# Serve para validar o artefato real da esteira — o mesmo que o Argo CD leva ao
+# cluster — antes de subir qualquer coisa. Para o ciclo de desenvolvimento, use
+# o docker-compose.yml sozinho, que constrói a partir do Dockerfile de cada serviço.
+#
+#   bash scripts/resolve-image-tags.sh [profile] [região]
+#   docker compose -f docker-compose.yml -f docker-compose.ecr.yml pull
+#   docker compose -f docker-compose.yml -f docker-compose.ecr.yml up -d --no-build
+
+services:
+  auth-service:
+    image: ${ECR_REGISTRY:?rode scripts/resolve-image-tags.sh}/togglemaster/auth-service:${AUTH_SERVICE_TAG:?rode scripts/resolve-image-tags.sh}
+
+  flag-service:
+    image: ${ECR_REGISTRY:?rode scripts/resolve-image-tags.sh}/togglemaster/flag-service:${FLAG_SERVICE_TAG:?rode scripts/resolve-image-tags.sh}
+
+  targeting-service:
+    image: ${ECR_REGISTRY:?rode scripts/resolve-image-tags.sh}/togglemaster/targeting-service:${TARGETING_SERVICE_TAG:?rode scripts/resolve-image-tags.sh}
+
+  evaluation-service:
+    image: ${ECR_REGISTRY:?rode scripts/resolve-image-tags.sh}/togglemaster/evaluation-service:${EVALUATION_SERVICE_TAG:?rode scripts/resolve-image-tags.sh}
+
+  analytics-service:
+    image: ${ECR_REGISTRY:?rode scripts/resolve-image-tags.sh}/togglemaster/analytics-service:${ANALYTICS_SERVICE_TAG:?rode scripts/resolve-image-tags.sh}

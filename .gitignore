@@ -1,19 +1,5 @@
 # Instruções para IA (uso local — não versionar)
 ai/
 
-# Terraform monolítico antigo (obsoleto — substituído por iac/)
-terraform/
-
-# Artefatos locais do Terraform
-**/.terraform/
-*.tfstate
-*.tfstate.*
-*.tfplan
-tfplan
-crash.log
-
-# tfvars reais podem conter segredos — versione só os .example
-*.auto.tfvars
-**/terraform.tfvars
-
+# Variáveis locais: credenciais AWS, chave de API e tags das imagens
 .env

@@ -1,7 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: flag-service-config
-  namespace: togglemaster
-data:  
-  AUTH_SERVICE_URL: "http://auth-service:8001"

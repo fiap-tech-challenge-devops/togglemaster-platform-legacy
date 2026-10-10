@@ -1,0 +1,44 @@
+# Configuração do OpenTelemetry Collector para o ambiente LOCAL de testes.
+#
+# Mínima de propósito: um receiver, um processor, um exporter. O objetivo aqui é
+# ver a telemetria chegando, não processá-la. A configuração de produção vive no
+# repositório GitOps e acrescenta k8sattributes, Datadog e os demais destinos.
+
+receivers:
+  # Porta de entrada única para os três sinais. É para cá que as aplicações
+  # instrumentadas enviam traces, métricas e logs.
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Agrupa os dados antes de exportar, em vez de uma chamada por item.
+  batch: {}
+
+exporters:
+  # Imprime no próprio log do Collector. Serve para enxergar o dado cru —
+  # em produção, no lugar dele entram Datadog, Prometheus e Loki.
+  debug:
+    verbosity: detailed
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
+
+  telemetry:
+    logs:
+      level: info
